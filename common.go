@@ -14,6 +14,7 @@ type PutAppendArgs struct {
 	Value string
 	// You'll have to add definitions here.
 	Op string
+	Backup bool
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
 }

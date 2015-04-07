@@ -42,14 +42,20 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// fmt.Println("PUT in server")
-	if args.Op == "Put" && pb.role == "primary" {
+	if args.Op == "Put" && pb.role == "primary" || pb.role == "backup" && args.Backup {
 			pb.data[args.Key] = args.Value
-	} else if args.Op == "Append" && pb.role == "primary" {
+	} else if args.Op == "Append" && pb.role == "primary" || pb.role == "backup" && args.Backup {
 			str, OK := pb.data[args.Key]
 			if !OK {
 				str = ""
 			}
 			pb.data[args.Key] = str + args.Value
+	} else {
+		reply.Err = ErrWrongServer
+	}
+	if reply.Err != ErrWrongServer  && pb.role == "primary" {
+		args.Backup = true
+		call(pb.vs.Backup(), "PBServer.PutAppend", args, &reply)
 	}
 
 
