@@ -30,12 +30,12 @@ type PBServer struct {
 }
 
 func (pb *PBServer) GetView(args *GetArgs, reply *ViewReply) error {
-	fmt.Println("getting view")
+	// fmt.Println("getting view")
 	pb.mu.Lock()
 	reply.View = pb.view
-	fmt.Println("sending out view", pb.view)
+	// fmt.Println("sending out view", pb.view)
 	pb.mu.Unlock()
-	fmt.Println("view set")
+	// fmt.Println("view set")
 	return nil
 }
 
@@ -70,7 +70,9 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	pb.mu.Unlock()
 	if processed == false {
 		if args.Op == "Put" && role == "primary" || role == "backup" && args.Backup {
+				pb.dataMu.Lock()
 				pb.data[args.Key] = args.Value
+				pb.dataMu.Unlock()
 		} else if args.Op == "Append" && role == "primary" || role == "backup" && args.Backup {
 				pb.dataMu.Lock()
 				str, OK := pb.data[args.Key]
@@ -86,12 +88,21 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		}
 		if reply.Err != ErrWrongServer  && role == "primary" {
 			args.Backup = true
-			backupErr := false
-			for backupErr != true && pb.view.Backup != "" {
-				backupErr = call(pb.view.Backup, "PBServer.PutAppend", args, &reply)
+			backedUp := false
+			pb.mu.Lock()
+			backup := pb.view.Backup
+			// pb.mu.Unlock()
+			for backedUp != true && backup != "" {
+				backedUp = call(backup, "PBServer.PutAppend", args, &reply)
+				if !backedUp{
+					// pb.mu.Lock()
+					backup = pb.view.Backup
+				}
 			}
+			pb.mu.Unlock()
 		}
 	}
+
 	return nil
 }
 

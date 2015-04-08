@@ -2,6 +2,7 @@ package pbservice
 
 import "viewservice"
 import "net/rpc"
+import "sync"
 import "fmt"
 import "time"
 import "crypto/rand"
@@ -12,6 +13,7 @@ type Clerk struct {
 	vs *viewservice.Clerk
 	// Your declarations here
 	view viewservice.View
+	mu sync.Mutex
 }
 
 // this may come in handy.
@@ -80,7 +82,10 @@ func (ck *Clerk) Get(key string) string {
 	callSucceeded := false
 	args, reply := GetArgs{Key: key}, GetReply{}
 	for callSucceeded != true {
-		callSucceeded = call(ck.view.Primary, "PBServer.Get", args, &reply)
+		ck.mu.Lock()
+		primary := ck.view.Primary
+		ck.mu.Unlock()
+		callSucceeded = call(primary, "PBServer.Get", args, &reply)
 		if callSucceeded == false {
 			ck.UpdateCache()
 		}
@@ -93,13 +98,15 @@ func (ck *Clerk) Get(key string) string {
 
 func (ck *Clerk) UpdateCache() {
 	primary := ck.vs.Primary()
-	fmt.Println("updating cache from primary:", primary)
-	fmt.Println("current view:", ck.view)
+	// fmt.Println("updating cache from primary:", primary)
+	// fmt.Println("current view:", ck.view)
 	reply := ViewReply{}
 	call(primary, "PBServer.GetView", &GetArgs{}, &reply)
+	ck.mu.Lock()
 	ck.view = reply.View
-	fmt.Println("cache updated")
-	fmt.Println("updated view:", ck.view)
+	ck.mu.Unlock()
+	// fmt.Println("cache updated")
+	// fmt.Println("updated view:", ck.view)
 }
 //
 // send a Put or Append RPC
@@ -108,12 +115,21 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// fmt.Println("starting PUT RPC: ", key, value)
 	reqId := nrand()
 	callSucceeded := false
+	ck.mu.Lock()
+	primary := ck.view.Primary
+	ck.mu.Unlock()
 	for callSucceeded == false {
 		// fmt.Println("trying reqId:", reqId)
 		args := PutAppendArgs{Key: key, Value: value, Op: op, ReqId: reqId}
 		reply := PutAppendReply{}
-		callSucceeded = call(ck.view.Primary, "PBServer.PutAppend", args, &reply)
-		if callSucceeded == false { ck.UpdateCache() }
+
+		callSucceeded = call(primary, "PBServer.PutAppend", args, &reply)
+		if callSucceeded == false {
+			ck.UpdateCache()
+			ck.mu.Lock()
+			primary = ck.view.Primary
+			ck.mu.Unlock()
+		}
 	}
 	return
 }
