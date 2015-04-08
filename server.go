@@ -26,6 +26,7 @@ type PBServer struct {
 	role       string
 	data 			 map[string]string
 	reqs       map[int64]bool
+	dataMu     sync.Mutex
 }
 
 
@@ -43,29 +44,35 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// fmt.Println("PUT in server")
-	if pb.reqs[args.ReqId] == false {
-		if args.Op == "Put" && pb.role == "primary" || pb.role == "backup" && args.Backup {
+	pb.mu.Lock()
+	role 			:= pb.role
+	processed := pb.reqs[args.ReqId]
+	pb.reqs[args.ReqId] = true
+	pb.mu.Unlock()
+	if processed == false {
+		if args.Op == "Put" && role == "primary" || role == "backup" && args.Backup {
 				pb.data[args.Key] = args.Value
-		} else if args.Op == "Append" && pb.role == "primary" || pb.role == "backup" && args.Backup {
+		} else if args.Op == "Append" && role == "primary" || role == "backup" && args.Backup {
+				pb.dataMu.Lock()
 				str, OK := pb.data[args.Key]
+				pb.dataMu.Unlock()
 				if !OK {
 					str = ""
 				}
+				pb.dataMu.Lock()
 				pb.data[args.Key] = str + args.Value
+				pb.dataMu.Unlock()
 		} else {
 			reply.Err = ErrWrongServer
 		}
-		if reply.Err != ErrWrongServer  && pb.role == "primary" {
+		if reply.Err != ErrWrongServer  && role == "primary" {
 			args.Backup = true
 			backupErr := false
 			for backupErr != true && pb.vs.Backup() != "" {
 				backupErr = call(pb.vs.Backup(), "PBServer.PutAppend", args, &reply)
 			}
 		}
-
-		pb.reqs[args.ReqId] = true
 	}
-
 	return nil
 }
 
@@ -86,6 +93,8 @@ func (pb *PBServer) tick() {
 	oldView := pb.view
 	// oldRole := pb.role
 	pb.view, _ = pb.vs.Ping(pb.view.Viewnum)
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
 	if pb.vs.Me() == pb.view.Primary {
 		pb.role = "primary"
 	} else if pb.vs.Me() == pb.vs.Backup() {
