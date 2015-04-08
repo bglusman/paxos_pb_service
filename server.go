@@ -43,27 +43,28 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// fmt.Println("PUT in server")
-	if args.Op == "Put" && pb.role == "primary" || pb.role == "backup" && args.Backup {
-			pb.data[args.Key] = args.Value
-	} else if args.Op == "Append" && pb.role == "primary" || pb.role == "backup" && args.Backup {
-			str, OK := pb.data[args.Key]
-			if !OK {
-				str = ""
-			}
-			pb.data[args.Key] = str + args.Value
-	} else {
-		reply.Err = ErrWrongServer
-	}
-	if reply.Err != ErrWrongServer  && pb.role == "primary" {
-		args.Backup = true
-		backupErr := false
-		for backupErr != true {
-			backupErr = call(pb.vs.Backup(), "PBServer.PutAppend", args, &reply)
+	if pb.reqs[args.ReqId] == false {
+		if args.Op == "Put" && pb.role == "primary" || pb.role == "backup" && args.Backup {
+				pb.data[args.Key] = args.Value
+		} else if args.Op == "Append" && pb.role == "primary" || pb.role == "backup" && args.Backup {
+				str, OK := pb.data[args.Key]
+				if !OK {
+					str = ""
+				}
+				pb.data[args.Key] = str + args.Value
+		} else {
+			reply.Err = ErrWrongServer
 		}
+		if reply.Err != ErrWrongServer  && pb.role == "primary" {
+			args.Backup = true
+			backupErr := false
+			for backupErr != true && pb.vs.Backup() != "" {
+				backupErr = call(pb.vs.Backup(), "PBServer.PutAppend", args, &reply)
+			}
+		}
+
+		pb.reqs[args.ReqId] = true
 	}
-
-	pb.reqs[args.ReqId] = true
-
 
 	return nil
 }
