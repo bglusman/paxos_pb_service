@@ -425,10 +425,12 @@ func checkAppends(t *testing.T, v string, counts []int) {
 			wanted := "x " + strconv.Itoa(i) + " " + strconv.Itoa(j) + " y"
 			off := strings.Index(v, wanted)
 			if off < 0 {
+				fmt.Println("missing off:", off, "wanted:", wanted, "v:", v)
 				t.Fatalf("missing element in Append result")
 			}
 			off1 := strings.LastIndex(v, wanted)
 			if off1 != off {
+				fmt.Println("off1:", off1, "off:", off)
 				t.Fatalf("duplicate element in Append result")
 			}
 			if off <= lastoff {
@@ -509,6 +511,7 @@ func TestConcurrentSameAppend(t *testing.T) {
 	// check that primary's copy of the value has all
 	// the Append()s.
 	primaryv := ck.Get("k")
+	fmt.Println("check appends 514")
 	checkAppends(t, primaryv, counts)
 
 	// kill the primary so we can check the backup
@@ -533,6 +536,7 @@ func TestConcurrentSameAppend(t *testing.T) {
 	// check that backup's copy of the value has all
 	// the Append()s.
 	backupv := ck.Get("k")
+	fmt.Println("check appends 539")
 	checkAppends(t, backupv, counts)
 
 	if backupv != primaryv {
@@ -868,7 +872,7 @@ func TestRepeatedCrashUnreliable(t *testing.T) {
 	}
 
 	ck := MakeClerk(vshost, "")
-
+	fmt.Println("check appends 875")
 	checkAppends(t, ck.Get("0"), counts)
 
 	ck.Put("aaa", "bbb")

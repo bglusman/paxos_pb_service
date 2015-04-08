@@ -118,11 +118,12 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	ck.mu.Lock()
 	primary := ck.view.Primary
 	ck.mu.Unlock()
+	tries := 0
 	for callSucceeded == false {
-		// fmt.Println("trying reqId:", reqId)
+		fmt.Println("trying reqId:", reqId, "attempt:", tries)
+		tries++
 		args := PutAppendArgs{Key: key, Value: value, Op: op, ReqId: reqId}
 		reply := PutAppendReply{}
-
 		callSucceeded = call(primary, "PBServer.PutAppend", args, &reply)
 		if callSucceeded == false {
 			ck.UpdateCache()
