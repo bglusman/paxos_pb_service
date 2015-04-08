@@ -8,6 +8,11 @@ const (
 
 type Err string
 
+type PutRequest struct {
+	Args PutAppendArgs
+	Reply PutAppendReply
+}
+
 // Put or Append
 type PutAppendArgs struct {
 	Key   string

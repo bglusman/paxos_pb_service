@@ -27,6 +27,7 @@ type PBServer struct {
 	data 			 map[string]string
 	reqs       map[int64]bool
 	dataMu     sync.Mutex
+	putQueue   chan PutRequest
 }
 
 func (pb *PBServer) GetView(args *GetArgs, reply *ViewReply) error {
@@ -60,56 +61,62 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 	return nil
 }
-
-
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
+	pb.putQueue <- PutRequest{Args: *args, Reply: *reply}
+	return nil
+}
+
+
+func (pb *PBServer) ProcessPutQueue() {
 	// fmt.Println("PUT in server")
-	pb.mu.Lock()
-	role 			:= pb.role
-	processed := pb.reqs[args.ReqId]
-	pb.reqs[args.ReqId] = true
-	pb.mu.Unlock()
-	if args.Backup { fmt.Println("back up of data:", args, "by:", pb.me) }
-	if processed == false {
-		pb.dataMu.Lock()
-		if args.Op == "Put" && role == "primary" || role == "backup" && args.Backup {
-				// pb.dataMu.Lock()
-				pb.data[args.Key] = args.Value
-				// pb.dataMu.Unlock()
-		} else if args.Op == "Append" && role == "primary" || role == "backup" && args.Backup {
-				// pb.dataMu.Lock()
-				str, OK := pb.data[args.Key]
-				// pb.dataMu.Unlock()
-				if !OK {
-					str = ""
-				}
-				// pb.dataMu.Lock()
-				pb.data[args.Key] = str + args.Value
-				// pb.dataMu.Unlock()
-		} else {
-			reply.Err = ErrWrongServer
-		}
-		// pb.dataMu.Lock()
-		if reply.Err != ErrWrongServer  && role == "primary" {
-			args.Backup = true
-			backedUp := false
-			pb.mu.Lock()
-			backup := pb.view.Backup
-			pb.mu.Unlock()
-			for backedUp != true && backup != "" {
-				fmt.Println("backing up data:", args, "by:", pb.me)
-				backedUp = call(backup, "PBServer.PutAppend", args, &reply)
-				if !backedUp{
-					pb.mu.Lock()
-					backup = pb.view.Backup
-					pb.mu.Unlock()
+	for request := range pb.putQueue {
+		args, reply := request.Args, request.Reply
+		pb.mu.Lock()
+		role 			:= pb.role
+		processed := pb.reqs[args.ReqId]
+		pb.reqs[args.ReqId] = true
+		pb.mu.Unlock()
+		if processed == false {
+			if args.Backup { fmt.Println("back up of data:", args, "by:", pb.me) }
+			pb.dataMu.Lock()
+			if args.Op == "Put" && role == "primary" || role == "backup" && args.Backup {
+					// pb.dataMu.Lock()
+					pb.data[args.Key] = args.Value
+					// pb.dataMu.Unlock()
+			} else if args.Op == "Append" && role == "primary" || role == "backup" && args.Backup {
+					// pb.dataMu.Lock()
+					str, OK := pb.data[args.Key]
+					// pb.dataMu.Unlock()
+					if !OK {
+						str = ""
+					}
+					// pb.dataMu.Lock()
+					pb.data[args.Key] = str + args.Value
+					// pb.dataMu.Unlock()
+			} else {
+				reply.Err = ErrWrongServer
+			}
+			// pb.dataMu.Lock()
+			if reply.Err != ErrWrongServer  && role == "primary" {
+				args.Backup = true
+				backedUp := false
+				pb.mu.Lock()
+				backup := pb.view.Backup
+				pb.mu.Unlock()
+				for backedUp != true && backup != "" {
+					fmt.Println("backing up data:", args, "by:", pb.me)
+					backedUp = call(backup, "PBServer.PutAppend", args, &reply)
+					if !backedUp{
+						pb.mu.Lock()
+						backup = pb.view.Backup
+						pb.mu.Unlock()
+					}
 				}
 			}
+			pb.dataMu.Unlock()
 		}
-		pb.dataMu.Unlock()
-	}
 
-	return nil
+	}
 }
 
 func (pb *PBServer) DataClone(data map[string]string, reply *PutAppendReply) error {
@@ -176,6 +183,8 @@ func StartServer(vshost string, me string) *PBServer {
 	// Your pb.* initializations here.
 	pb.data = make(map[string]string)
 	pb.reqs = make(map[int64]bool)
+	pb.putQueue = make(chan PutRequest)
+	pb.ProcessPutQueue()
 	rpcs := rpc.NewServer()
 	rpcs.Register(pb)
 
