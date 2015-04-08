@@ -25,6 +25,7 @@ type PBServer struct {
 	view       viewservice.View
 	role       string
 	data 			 map[string]string
+	reqs       map[int64]bool
 }
 
 
@@ -55,14 +56,23 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	}
 	if reply.Err != ErrWrongServer  && pb.role == "primary" {
 		args.Backup = true
-		call(pb.vs.Backup(), "PBServer.PutAppend", args, &reply)
+		backupErr := false
+		for backupErr != true {
+			backupErr = call(pb.vs.Backup(), "PBServer.PutAppend", args, &reply)
+		}
 	}
 
+	pb.reqs[args.ReqId] = true
 
 
 	return nil
 }
 
+func (pb *PBServer) DataClone(data map[string]string, reply *PutAppendReply) error {
+	pb.data = data
+	reply.Err = OK
+	return nil
+}
 
 //
 // ping the viewserver periodically.
@@ -72,15 +82,20 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 //
 func (pb *PBServer) tick() {
 	// fmt.Println("Clerk: ", pb.vs)
+	oldView := pb.view
+	// oldRole := pb.role
 	pb.view, _ = pb.vs.Ping(pb.view.Viewnum)
 	if pb.vs.Me() == pb.view.Primary {
 		pb.role = "primary"
-	} else if pb.vs.Me() == pb.view.Backup {
+	} else if pb.vs.Me() == pb.vs.Backup() {
 		pb.role = "backup"
 	} else {
 		pb.role = "idle"
 	}
-
+	if pb.role == "primary" && oldView.Backup != pb.vs.Backup() {
+		reply := PutAppendReply{}
+		call(pb.vs.Backup(), "PBServer.DataClone", pb.data, &reply)
+	}
 }
 
 // tell the server to shut itself down.
@@ -114,6 +129,7 @@ func StartServer(vshost string, me string) *PBServer {
 	pb.vs = viewservice.MakeClerk(me, vshost)
 	// Your pb.* initializations here.
 	pb.data = make(map[string]string)
+	pb.reqs = make(map[int64]bool)
 	rpcs := rpc.NewServer()
 	rpcs.Register(pb)
 

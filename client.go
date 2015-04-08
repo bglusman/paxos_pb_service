@@ -88,11 +88,13 @@ func (ck *Clerk) Get(key string) string {
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// fmt.Println("starting PUT RPC: ", key, value)
-	args := PutAppendArgs{Key: key, Value: value, Op: op}
-	reply := PutAppendReply{}
-	err := call(ck.vs.Primary(), "PBServer.PutAppend", args, &reply)
-	if err != false {
-
+	reqId := nrand()
+	err := false
+	for err == true {
+		fmt.Println("trying reqId:", reqId)
+		args := PutAppendArgs{Key: key, Value: value, Op: op, ReqId: reqId}
+		reply := PutAppendReply{}
+		err = call(ck.vs.Primary(), "PBServer.PutAppend", args, &reply)
 	}
 	return
 }
