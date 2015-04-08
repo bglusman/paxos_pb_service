@@ -69,7 +69,9 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 
 func (pb *PBServer) ProcessPutQueue() {
 	// fmt.Println("PUT in server")
+	fmt.Println("starting to process queue")
 	for request := range pb.putQueue {
+		fmt.Println("request in queue:", request)
 		args, reply := request.Args, request.Reply
 		pb.mu.Lock()
 		role 			:= pb.role
@@ -78,7 +80,7 @@ func (pb *PBServer) ProcessPutQueue() {
 		pb.mu.Unlock()
 		if processed == false {
 			if args.Backup { fmt.Println("back up of data:", args, "by:", pb.me) }
-			pb.dataMu.Lock()
+			// pb.dataMu.Lock()
 			if args.Op == "Put" && role == "primary" || role == "backup" && args.Backup {
 					// pb.dataMu.Lock()
 					pb.data[args.Key] = args.Value
@@ -113,7 +115,7 @@ func (pb *PBServer) ProcessPutQueue() {
 					}
 				}
 			}
-			pb.dataMu.Unlock()
+			// pb.dataMu.Unlock()
 		}
 
 	}
@@ -184,7 +186,7 @@ func StartServer(vshost string, me string) *PBServer {
 	pb.data = make(map[string]string)
 	pb.reqs = make(map[int64]bool)
 	pb.putQueue = make(chan PutRequest)
-	pb.ProcessPutQueue()
+	go pb.ProcessPutQueue()
 	rpcs := rpc.NewServer()
 	rpcs.Register(pb)
 
