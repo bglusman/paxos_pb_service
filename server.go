@@ -29,14 +29,33 @@ type PBServer struct {
 	dataMu     sync.Mutex
 }
 
+func (pb *PBServer) GetView(args *GetArgs, reply *ViewReply) error {
+	fmt.Println("getting view")
+	pb.mu.Lock()
+	reply.View = pb.view
+	fmt.Println("sending out view", pb.view)
+	pb.mu.Unlock()
+	fmt.Println("view set")
+	return nil
+}
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	// fmt.Println("GET in server: ", args)
-	var ok bool
-	reply.Value, ok = pb.data[args.Key]
-	if !ok {
-		reply.Err = ErrNoKey
-	}
+	pb.mu.Lock()
+	role 			:= pb.role
+	pb.mu.Unlock()
+	if role != "primary" {
+			reply.Err = ErrWrongServer
+		} else {
+			var ok bool
+			pb.dataMu.Lock()
+			reply.Value, ok = pb.data[args.Key]
+			pb.dataMu.Unlock()
+			if !ok {
+				reply.Err = ErrNoKey
+			}
+		}
+
 
 	return nil
 }
@@ -68,8 +87,8 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		if reply.Err != ErrWrongServer  && role == "primary" {
 			args.Backup = true
 			backupErr := false
-			for backupErr != true && pb.vs.Backup() != "" {
-				backupErr = call(pb.vs.Backup(), "PBServer.PutAppend", args, &reply)
+			for backupErr != true && pb.view.Backup != "" {
+				backupErr = call(pb.view.Backup, "PBServer.PutAppend", args, &reply)
 			}
 		}
 	}
@@ -97,14 +116,14 @@ func (pb *PBServer) tick() {
 	defer pb.mu.Unlock()
 	if pb.vs.Me() == pb.view.Primary {
 		pb.role = "primary"
-	} else if pb.vs.Me() == pb.vs.Backup() {
+	} else if pb.vs.Me() == pb.view.Backup {
 		pb.role = "backup"
 	} else {
 		pb.role = "idle"
 	}
-	if pb.role == "primary" && oldView.Backup != pb.vs.Backup() {
+	if pb.role == "primary" && oldView.Backup != pb.view.Backup {
 		reply := PutAppendReply{}
-		call(pb.vs.Backup(), "PBServer.DataClone", pb.data, &reply)
+		call(pb.view.Backup, "PBServer.DataClone", pb.data, &reply)
 	}
 }
 

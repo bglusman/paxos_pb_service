@@ -3,7 +3,7 @@ package pbservice
 import "viewservice"
 import "net/rpc"
 import "fmt"
-
+import "time"
 import "crypto/rand"
 import "math/big"
 
@@ -11,6 +11,7 @@ import "math/big"
 type Clerk struct {
 	vs *viewservice.Clerk
 	// Your declarations here
+	view viewservice.View
 }
 
 // this may come in handy.
@@ -25,7 +26,10 @@ func MakeClerk(vshost string, me string) *Clerk {
 	ck := new(Clerk)
 	ck.vs = viewservice.MakeClerk(me, vshost)
 	// Your ck.* initializations here
-
+	go func() {
+		time.Sleep(3 * time.Second)
+		ck.UpdateCache()
+	}()
 	return ck
 }
 
@@ -73,28 +77,43 @@ func call(srv string, rpcname string,
 //
 func (ck *Clerk) Get(key string) string {
 	// fmt.Println("starting GET RPC from", ck.vs.Primary(), key)
+	callSucceeded := false
 	args, reply := GetArgs{Key: key}, GetReply{}
-	ok := call(ck.vs.Primary(), "PBServer.Get", args, &reply)
-	if ok == false {
-
+	for callSucceeded != true {
+		callSucceeded = call(ck.view.Primary, "PBServer.Get", args, &reply)
+		if callSucceeded == false {
+			ck.UpdateCache()
+		}
 	}
 
 
 	return reply.Value
 }
 
+
+func (ck *Clerk) UpdateCache() {
+	primary := ck.vs.Primary()
+	fmt.Println("updating cache from primary:", primary)
+	fmt.Println("current view:", ck.view)
+	reply := ViewReply{}
+	call(primary, "PBServer.GetView", &GetArgs{}, &reply)
+	ck.view = reply.View
+	fmt.Println("cache updated")
+	fmt.Println("updated view:", ck.view)
+}
 //
 // send a Put or Append RPC
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// fmt.Println("starting PUT RPC: ", key, value)
 	reqId := nrand()
-	err := false
-	for err != true {
+	callSucceeded := false
+	for callSucceeded == false {
 		// fmt.Println("trying reqId:", reqId)
 		args := PutAppendArgs{Key: key, Value: value, Op: op, ReqId: reqId}
 		reply := PutAppendReply{}
-		err = call(ck.vs.Primary(), "PBServer.PutAppend", args, &reply)
+		callSucceeded = call(ck.view.Primary, "PBServer.PutAppend", args, &reply)
+		if callSucceeded == false { ck.UpdateCache() }
 	}
 	return
 }
