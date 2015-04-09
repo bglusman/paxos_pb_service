@@ -111,7 +111,8 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 
 			backup := pb.view.Backup
 			// pb.mu.Unlock()
-			for backedUp != true && backup != "" {
+			backupTries := 0
+			for backedUp != true && backup != "" && backupTries < 20 {
 				fmt.Println("backing up data:", args, "by:", pb.me)
 				backedUp = call(backup, "PBServer.PutAppend", args, &reply)
 				if !backedUp{
@@ -119,6 +120,7 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 					backup = pb.view.Backup
 					// pb.mu.Unlock()
 				}
+				backupTries++
 			}
 		}
 		// pb.mu.Lock()
