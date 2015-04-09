@@ -95,6 +95,7 @@ func (pb *PBServer) ProcessPutQueue() {
 					// pb.dataMu.Lock()
 					pb.data[args.Key] = str + args.Value
 					// pb.dataMu.Unlock()
+					fmt.Println("appended:", pb.data[args.Key], "on key:", args.Key)
 			} else {
 				reply.Err = ErrWrongServer
 			}
@@ -121,8 +122,9 @@ func (pb *PBServer) ProcessPutQueue() {
 	}
 }
 
-func (pb *PBServer) DataClone(data map[string]string, reply *PutAppendReply) error {
-	pb.data = data
+func (pb *PBServer) DataClone(data *BackupData, reply *PutAppendReply) error {
+	pb.data = data.Data
+	pb.reqs = data.Reqs
 	reply.Err = OK
 	return nil
 }
@@ -148,8 +150,11 @@ func (pb *PBServer) tick() {
 		pb.role = "idle"
 	}
 	if pb.role == "primary" && oldView.Backup != pb.view.Backup {
+		// var success bool
 		reply := PutAppendReply{}
-		call(pb.view.Backup, "PBServer.DataClone", pb.data, &reply)
+		// for success != true {
+		call(pb.view.Backup, "PBServer.DataClone", BackupData{Data: pb.data, Reqs: pb.reqs}, &reply)
+		// }
 	}
 }
 

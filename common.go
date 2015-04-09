@@ -8,6 +8,11 @@ const (
 
 type Err string
 
+type BackupData struct {
+	Data 			 map[string]string
+	Reqs       map[int64]bool
+}
+
 type PutRequest struct {
 	Args PutAppendArgs
 	Reply PutAppendReply
