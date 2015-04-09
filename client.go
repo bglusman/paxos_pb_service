@@ -55,13 +55,16 @@ func MakeClerk(vshost string, me string) *Clerk {
 //
 func call(srv string, rpcname string,
 	args interface{}, reply interface{}) bool {
+	fmt.Println("dialing", srv)
 	c, errx := rpc.Dial("unix", srv)
+	fmt.Println("errx",errx)
 	if errx != nil {
 		return false
 	}
 	defer c.Close()
-
+	fmt.Println("call calling ")
 	err := c.Call(rpcname, args, reply)
+	fmt.Println("call returning", err)
 	if err == nil {
 		return true
 	}
@@ -101,15 +104,23 @@ func (ck *Clerk) Get(key string) string {
 
 
 func (ck *Clerk) UpdateCache() {
-	primary := ck.vs.Primary()
+	ck.mu.Lock()
+	//primary := ck.vs.Primary()
 	// fmt.Println("updating cache from primary:", primary)
 	// fmt.Println("current view:", ck.view)
-	reply := ViewReply{}
-	call(primary, "PBServer.GetView", &GetArgs{}, &reply)
-	ck.mu.Lock()
+	reply := viewservice.PingReply{}
+	fmt.Println("get view rpc start, asking info from", ck.vs.Server())
+	updateSuccessful := call(ck.vs.Server(), "ViewServer.GetView", &viewservice.PingReply{}, &reply)
+
+	if !updateSuccessful{
+		fmt.Println("can't contact primary")
+		return
+	}
+	fmt.Println("get view rpc return", reply)
+
 	ck.view = reply.View
 	ck.mu.Unlock()
-	// fmt.Println("cache updated")
+	fmt.Println("cache updated")
 	// fmt.Println("updated view:", ck.view)
 }
 //
@@ -122,23 +133,28 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	ck.mu.Lock()
 	primary := ck.view.Primary
 	ck.mu.Unlock()
-	tries := 0
+	tries2 := 0
 	reply := PutAppendReply{}
 
-	for callSucceeded == false || reply.Err == ErrWrongServer{
+	for tries2 < 20 && (callSucceeded == false || reply.Err == ErrWrongServer) {
 		fmt.Println("call status", callSucceeded, "reply", reply)
-		fmt.Println("trying reqId:", reqId, "attempt:", tries)
-		tries++
+		fmt.Println("trying reqId:", reqId, "attempt:", tries2)
+
 		args := PutAppendArgs{Key: key, Value: value, Op: op, ReqId: reqId}
 		callSucceeded = call(primary, "PBServer.PutAppend", args, &reply)
+		fmt.Println("called, returned", callSucceeded, reply, tries2)
 		if callSucceeded == false || reply.Err == ErrWrongServer {
 			ck.UpdateCache()
 			ck.mu.Lock()
 			primary = ck.view.Primary
+			fmt.Println("updating primary to", primary)
 			ck.mu.Unlock()
 		}
 		tries := 0
-		for reply.Err == "" && callSucceeded == true && tries < 20{   time.Sleep(50 * time.Millisecond); tries++}
+
+		for reply.Err == "" && callSucceeded == true && tries < 20{fmt.Println(tries); time.Sleep(50 * time.Millisecond); tries++}
+		tries2++
+
 	}
 
 	return
