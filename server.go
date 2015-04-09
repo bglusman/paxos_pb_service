@@ -80,54 +80,54 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	role 			:= pb.role
 	processed := pb.reqs[args.ReqId]
 
-	pb.mu.Unlock()
 	if processed == false {
 
 		if args.Backup { fmt.Println("back up of data:", args, "by:", pb.me) }
 		// pb.dataMu.Lock()
-		if args.Op == "Put" && role == "primary" || role == "backup" && args.Backup {
-				pb.dataMu.Lock()
+		if args.Op == "Put" && (role == "primary" || (role == "backup" && args.Backup)) {
+				// pb.dataMu.Lock()
 				pb.data[args.Key] = args.Value
-				pb.dataMu.Unlock()
-		} else if args.Op == "Append" && role == "primary" || role == "backup" && args.Backup {
-				pb.dataMu.Lock()
+				// pb.dataMu.Unlock()
+		} else if args.Op == "Append" && (role == "primary" || (role == "backup" && args.Backup)) {
+				// pb.dataMu.Lock()
 				str, OK := pb.data[args.Key]
-				pb.dataMu.Unlock()
+				// pb.dataMu.Unlock()
 				if !OK {
 					str = ""
 				}
-				pb.dataMu.Lock()
+				// pb.dataMu.Lock()
 				pb.data[args.Key] = str + args.Value
 
 				fmt.Println("appended:", pb.data[args.Key], "on key:", args.Key)
-				pb.dataMu.Unlock()
+				// pb.dataMu.Unlock()
 		} else {
 			reply.Err = ErrWrongServer
 		}
-		pb.dataMu.Lock()
+		// pb.dataMu.Lock()
 		if reply.Err != ErrWrongServer  && role == "primary" {
-			pb.mu.Lock()
+			// pb.mu.Lock()
 			args.Backup = true
 			backedUp := false
 
 			backup := pb.view.Backup
-			pb.mu.Unlock()
+			// pb.mu.Unlock()
 			for backedUp != true && backup != "" {
 				fmt.Println("backing up data:", args, "by:", pb.me)
 				backedUp = call(backup, "PBServer.PutAppend", args, &reply)
 				if !backedUp{
-					pb.mu.Lock()
+					// pb.mu.Lock()
 					backup = pb.view.Backup
-					pb.mu.Unlock()
+					// pb.mu.Unlock()
 				}
 			}
 		}
-		pb.mu.Lock()
+		// pb.mu.Lock()
 		pb.reqs[args.ReqId] = true
 		if reply.Err == "" { reply.Err = OK }
-		pb.mu.Unlock()
-		pb.dataMu.Unlock()
+		// pb.mu.Unlock()
+		// pb.dataMu.Unlock()
 	}
+	pb.mu.Unlock()
 	return nil
 }
 
@@ -146,10 +146,10 @@ func (pb *PBServer) DataClone(data *BackupData, reply *PutAppendReply) error {
 //
 func (pb *PBServer) tick() {
 	// fmt.Println("Clerk: ", pb.vs)
+	pb.mu.Lock()
 	oldView := pb.view
 	// oldRole := pb.role
 	pb.view, _ = pb.vs.Ping(pb.view.Viewnum)
-	pb.mu.Lock()
 
 	if pb.vs.Me() == pb.view.Primary {
 		pb.role = "primary"
