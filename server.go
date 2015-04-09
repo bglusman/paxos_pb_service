@@ -82,24 +82,24 @@ func (pb *PBServer) ProcessPutQueue() {
 			if args.Backup { fmt.Println("back up of data:", args, "by:", pb.me) }
 			// pb.dataMu.Lock()
 			if args.Op == "Put" && role == "primary" || role == "backup" && args.Backup {
-					// pb.dataMu.Lock()
+					pb.dataMu.Lock()
 					pb.data[args.Key] = args.Value
-					// pb.dataMu.Unlock()
+					pb.dataMu.Unlock()
 			} else if args.Op == "Append" && role == "primary" || role == "backup" && args.Backup {
-					// pb.dataMu.Lock()
+					pb.dataMu.Lock()
 					str, OK := pb.data[args.Key]
-					// pb.dataMu.Unlock()
+					pb.dataMu.Unlock()
 					if !OK {
 						str = ""
 					}
-					// pb.dataMu.Lock()
+					pb.dataMu.Lock()
 					pb.data[args.Key] = str + args.Value
-					// pb.dataMu.Unlock()
+					pb.dataMu.Unlock()
 					fmt.Println("appended:", pb.data[args.Key], "on key:", args.Key)
 			} else {
 				reply.Err = ErrWrongServer
 			}
-			// pb.dataMu.Lock()
+			pb.dataMu.Lock()
 			if reply.Err != ErrWrongServer  && role == "primary" {
 				args.Backup = true
 				backedUp := false
@@ -116,7 +116,7 @@ func (pb *PBServer) ProcessPutQueue() {
 					}
 				}
 			}
-			// pb.dataMu.Unlock()
+			pb.dataMu.Unlock()
 		}
 
 	}
