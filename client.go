@@ -3,17 +3,17 @@ package pbservice
 import "viewservice"
 import "net/rpc"
 import "sync"
-import "fmt"
+
+// import "fmt"
 import "time"
 import "crypto/rand"
 import "math/big"
-
 
 type Clerk struct {
 	vs *viewservice.Clerk
 	// Your declarations here
 	view viewservice.View
-	mu sync.Mutex
+	mu   sync.Mutex
 }
 
 // this may come in handy.
@@ -34,7 +34,6 @@ func MakeClerk(vshost string, me string) *Clerk {
 	}()
 	return ck
 }
-
 
 //
 // call() sends an RPC to the rpcname handler on server srv
@@ -66,7 +65,7 @@ func call(srv string, rpcname string,
 		return true
 	}
 
-	fmt.Println(err)
+	// fmt.Println(err)
 	return false
 }
 
@@ -78,27 +77,36 @@ func call(srv string, rpcname string,
 // says the key doesn't exist (has never been Put().
 //
 func (ck *Clerk) Get(key string) string {
-	// fmt.Println("starting GET RPC from", ck.vs.Primary(), key)
+
 	callSucceeded := false
-	args, reply := GetArgs{Key: key}, GetReply{}
+	ck.mu.Lock()
+	primary := ck.view.Primary
+	ck.mu.Unlock()
+	tries := 0
+	args, reply := GetArgs{Key: key, Viewnum: ck.view.Viewnum}, GetReply{}
+	// fmt.Println("starting GET RPC to", primary, key)
 	for callSucceeded != true || reply.Err == ErrWrongServer {
-		ck.mu.Lock()
-		primary := ck.view.Primary
-		ck.mu.Unlock()
+		tries++
 		callSucceeded = call(primary, "PBServer.Get", args, &reply)
-		if callSucceeded == false {
+		if callSucceeded == false || reply.Err == ErrWrongServer {
 			ck.UpdateCache()
+			ck.mu.Lock()
+			primary = ck.view.Primary
+			args.Viewnum = ck.view.Viewnum
+			ck.mu.Unlock()
+			continue
 		}
 
-
-
-		for reply.Err == "" && callSucceeded == true {fmt.Println("sleeping get"); time.Sleep(50 * time.Millisecond )}
+		tries := 0
+		for reply.Err == "" && callSucceeded == true && tries < 20 {
+			// fmt.Println("sleeping get")
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 
-	fmt.Println("GET returning")
+	// fmt.Println("GET returning")
 	return reply.Value
 }
-
 
 func (ck *Clerk) UpdateCache() {
 	primary := ck.vs.Primary()
@@ -112,11 +120,12 @@ func (ck *Clerk) UpdateCache() {
 	// fmt.Println("cache updated")
 	// fmt.Println("updated view:", ck.view)
 }
+
 //
 // send a Put or Append RPC
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
-	// fmt.Println("starting PUT RPC: ", key, value)
+
 	reqId := nrand()
 	callSucceeded := false
 	ck.mu.Lock()
@@ -124,21 +133,31 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	ck.mu.Unlock()
 	tries := 0
 	reply := PutAppendReply{}
+	// fmt.Println("starting PUT RPC to", primary, key, value)
 
-	for callSucceeded == false || reply.Err == ErrWrongServer{
-		fmt.Println("call status", callSucceeded, "reply", reply)
-		fmt.Println("trying reqId:", reqId, "attempt:", tries)
+	for callSucceeded == false || reply.Err == ErrWrongServer {
+		// fmt.Println("call status", callSucceeded, "reply", reply)
+		// fmt.Println("trying reqId:", reqId, "attempt:", tries)
 		tries++
-		args := PutAppendArgs{Key: key, Value: value, Op: op, ReqId: reqId}
+		args := PutAppendArgs{Key: key, Value: value, Op: op, ReqId: reqId, Viewnum: ck.view.Viewnum}
 		callSucceeded = call(primary, "PBServer.PutAppend", args, &reply)
 		if callSucceeded == false || reply.Err == ErrWrongServer {
+			// fmt.Println("Updating cache...")
 			ck.UpdateCache()
 			ck.mu.Lock()
 			primary = ck.view.Primary
+			args.Viewnum = ck.view.Viewnum
 			ck.mu.Unlock()
+			reply = PutAppendReply{}
+			// reset reply! otherwise it'll loop back to the top with ErrWrongServer
+			// BEFORE there is a chance for the reply to come in!
+			continue
 		}
 		tries := 0
-		for reply.Err == "" && callSucceeded == true && tries < 20{   time.Sleep(50 * time.Millisecond); tries++}
+		for reply.Err == "" && callSucceeded == true && tries < 20 {
+			time.Sleep(50 * time.Millisecond)
+			tries++
+		}
 	}
 
 	return

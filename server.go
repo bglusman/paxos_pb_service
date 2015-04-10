@@ -12,8 +12,6 @@ import "os"
 import "syscall"
 import "math/rand"
 
-
-
 type PBServer struct {
 	mu         sync.Mutex
 	l          net.Listener
@@ -22,12 +20,12 @@ type PBServer struct {
 	me         string
 	vs         *viewservice.Clerk
 	// Your declarations here.
-	view       viewservice.View
-	role       string
-	data 			 map[string]string
-	reqs       map[int64]bool
-	dataMu     sync.Mutex
-	putQueue   chan PutRequest
+	view     viewservice.View
+	role     string
+	data     map[string]string
+	reqs     map[int64]bool
+	dataMu   sync.Mutex
+	putQueue chan PutRequest
 }
 
 func (pb *PBServer) GetView(args *GetArgs, reply *ViewReply) error {
@@ -42,94 +40,119 @@ func (pb *PBServer) GetView(args *GetArgs, reply *ViewReply) error {
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	// fmt.Println("GET in server: ", args)
-	fmt.Println("get of data:", args.Key, "by:", pb.me)
+	// fmt.Println("get of data:", args.Key, "by:", pb.me)
 	pb.mu.Lock()
-	role 			:= pb.role
+	role := pb.role
 	pb.mu.Unlock()
 	if role != "primary" {
-			reply.Err = ErrWrongServer
+		// fmt.Println(role, pb.me, "returning wrong server to get request")
+		reply.Err = ErrWrongServer
+	} else {
+		var ok bool
+		pb.mu.Lock()
+		reply.Value, ok = pb.data[args.Key]
+		pb.mu.Unlock()
+		if !ok {
+			reply.Err = ErrNoKey
 		} else {
-			var ok bool
-			pb.dataMu.Lock()
-			reply.Value, ok = pb.data[args.Key]
-			pb.dataMu.Unlock()
-			if !ok {
-				reply.Err = ErrNoKey
-			} else {
-				reply.Err = OK
-			}
+			reply.Err = OK
 		}
-
+	}
 
 	return nil
 }
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
-// 	fmt.Println("queuing req:", args.ReqId);
-// 	pb.putQueue <- PutRequest{Args: *args, Reply: *reply}
-// 	return nil
-// }
+	// fmt.Println("server-side PutAppend entered for", pb.me)
+	// 	fmt.Println("queuing req:", args.ReqId);
+	// 	pb.putQueue <- PutRequest{Args: *args, Reply: *reply}
+	// 	return nil
+	// }
 
-
-// func (pb *PBServer) ProcessPutQueue() {
-// 	// fmt.Println("PUT in server")
-// 	fmt.Println("starting to process queue")
-// 	for request := range pb.putQueue {
+	// func (pb *PBServer) ProcessPutQueue() {
+	// 	// fmt.Println("PUT in server")
+	// 	fmt.Println("starting to process queue")
+	// 	for request := range pb.putQueue {
 	// fmt.Println("request in queue:", request)
 	// args, reply := request.Args, request.Reply
 	pb.mu.Lock()
-	role 			:= pb.role
+	role := pb.role
 	processed := pb.reqs[args.ReqId]
 
 	if processed == false {
 
-		if args.Backup { fmt.Println("back up of data:", args, "by:", pb.me) }
+		if args.Backup {
+			// fmt.Println("back up of data:", args, "by:", pb.me)
+		}
 		// pb.dataMu.Lock()
 		if args.Op == "Put" && (role == "primary" || (role == "backup" && args.Backup)) {
-				// pb.dataMu.Lock()
-				pb.data[args.Key] = args.Value
-				// pb.dataMu.Unlock()
+			// pb.dataMu.Lock()
+			pb.data[args.Key] = args.Value
+			// pb.dataMu.Unlock()
 		} else if args.Op == "Append" && (role == "primary" || (role == "backup" && args.Backup)) {
-				// pb.dataMu.Lock()
-				str, OK := pb.data[args.Key]
-				// pb.dataMu.Unlock()
-				if !OK {
-					str = ""
-				}
-				// pb.dataMu.Lock()
-				pb.data[args.Key] = str + args.Value
+			// pb.dataMu.Lock()
+			str, OK := pb.data[args.Key]
+			// pb.dataMu.Unlock()
+			if !OK {
+				str = ""
+			}
+			// pb.dataMu.Lock()
+			pb.data[args.Key] = str + args.Value
 
-				fmt.Println("appended:", pb.data[args.Key], "on key:", args.Key)
-				// pb.dataMu.Unlock()
+			// fmt.Println("appended:", pb.data[args.Key], "on key:", args.Key)
+			// pb.dataMu.Unlock()
 		} else {
+			// fmt.Println(role, pb.me, "returning wrong server to put request id", args.ReqId)
+			// fmt.Println("server thinks it is in", pb.view.Viewnum, "and request is from", args.Viewnum)
 			reply.Err = ErrWrongServer
 		}
 		// pb.dataMu.Lock()
-		if reply.Err != ErrWrongServer  && role == "primary" {
+		if reply.Err != ErrWrongServer && role == "primary" {
 			// pb.mu.Lock()
 			args.Backup = true
-			backedUp := false
+			backupCallSucceeded := false
 
 			backup := pb.view.Backup
 			// pb.mu.Unlock()
 			backupTries := 0
-			for backedUp != true && backup != "" && backupTries < 20 {
-				fmt.Println("backing up data:", args, "by:", pb.me)
-				backedUp = call(backup, "PBServer.PutAppend", args, &reply)
-				if !backedUp{
+			backupReply := PutAppendReply{}
+
+			for backupCallSucceeded != true && backup != "" && backupTries < 20 {
+				// fmt.Println("backing up data:", args, "by:", pb.me)
+				backupCallSucceeded = call(backup, "PBServer.PutAppend", args, &backupReply)
+				if !backupCallSucceeded {
 					// pb.mu.Lock()
 					backup = pb.view.Backup
 					// pb.mu.Unlock()
 				}
 				backupTries++
 			}
+			// wait for backup reply before moving on
+			// if backup replies wrong server, then someone might have the wrong view
+			// return error to client to force call to UpdateCache()
+			waitForReply := 0
+			for backupReply.Err == "" && backupCallSucceeded == true && waitForReply < 20 {
+				time.Sleep(50 * time.Millisecond)
+				waitForReply++
+			}
+			if backupReply.Err == ErrWrongServer {
+				// force the backup to talk to the viewservice
+				// fmt.Println("SENDING BACKUP TO BAD SERVER")
+				dummy := GetReply{}
+				// not really sure how to do an RPC without these
+				call(backup, "PBServer.Tick", &dummy, &dummy)
+				reply.Err = ErrWrongServer
+			}
 		}
 		// pb.mu.Lock()
 		pb.reqs[args.ReqId] = true
-		if reply.Err == "" { reply.Err = OK }
+		if reply.Err == "" {
+			reply.Err = OK
+		}
 		// pb.mu.Unlock()
 		// pb.dataMu.Unlock()
 	}
 	pb.mu.Unlock()
+
 	return nil
 }
 
@@ -146,6 +169,11 @@ func (pb *PBServer) DataClone(data *BackupData, reply *PutAppendReply) error {
 //   transition to new view.
 //   manage transfer of state from primary to new backup.
 //
+func (pb *PBServer) Tick(data *GetReply, reply *GetReply) error {
+	pb.tick()
+	return nil
+}
+
 func (pb *PBServer) tick() {
 	// fmt.Println("Clerk: ", pb.vs)
 	pb.mu.Lock()
@@ -193,7 +221,6 @@ func (pb *PBServer) setunreliable(what bool) {
 func (pb *PBServer) isunreliable() bool {
 	return atomic.LoadInt32(&pb.unreliable) != 0
 }
-
 
 func StartServer(vshost string, me string) *PBServer {
 	pb := new(PBServer)

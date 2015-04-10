@@ -17,7 +17,7 @@ import "sync/atomic"
 
 func check(ck *Clerk, key string, value string) {
 	v := ck.Get(key)
-	fmt.Println("Get(%v) -> %v, expected %v", key, v, value)
+	// fmt.Println("Get(%v) -> %v, expected %v", key, v, value)
 	if v != value {
 		log.Fatalf("Get(%v) -> %v, expected %v", key, v, value)
 	}
