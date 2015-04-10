@@ -130,6 +130,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	callSucceeded := false
 	ck.mu.Lock()
 	primary := ck.view.Primary
+	args := PutAppendArgs{Key: key, Value: value, Op: op, ReqId: reqId, Viewnum: ck.view.Viewnum}
 	ck.mu.Unlock()
 	tries := 0
 	reply := PutAppendReply{}
@@ -139,7 +140,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		// fmt.Println("call status", callSucceeded, "reply", reply)
 		// fmt.Println("trying reqId:", reqId, "attempt:", tries)
 		tries++
-		args := PutAppendArgs{Key: key, Value: value, Op: op, ReqId: reqId, Viewnum: ck.view.Viewnum}
+
 		callSucceeded = call(primary, "PBServer.PutAppend", args, &reply)
 		if callSucceeded == false || reply.Err == ErrWrongServer {
 			// fmt.Println("Updating cache...")
@@ -147,6 +148,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			ck.mu.Lock()
 			primary = ck.view.Primary
 			args.Viewnum = ck.view.Viewnum
+
 			ck.mu.Unlock()
 			reply = PutAppendReply{}
 			// reset reply! otherwise it'll loop back to the top with ErrWrongServer
