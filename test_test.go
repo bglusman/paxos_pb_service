@@ -839,6 +839,7 @@ func TestRepeatedCrashUnreliable(t *testing.T) {
 		ret := -1
 		defer func() { ch <- ret }()
 		ck := MakeClerk(vshost, "")
+		fmt.Printf("made clerk:", i, ck, "\n")
 		n := 0
 		for atomic.LoadInt32(&done) == 0 {
 			v := "x " + strconv.Itoa(i) + " " + strconv.Itoa(n) + " y"
@@ -865,13 +866,14 @@ func TestRepeatedCrashUnreliable(t *testing.T) {
 
 	counts := []int{}
 	for i := 0; i < nth; i++ {
+		fmt.Printf("  ... Appends count num:", i, "\n")
 		n := <-cha[i]
 		if n < 0 {
 			t.Fatal("child failed")
 		}
 		counts = append(counts, n)
 	}
-
+	fmt.Printf("  ... Appends counts done ... \n")
 	ck := MakeClerk(vshost, "")
 	fmt.Println("check appends 875")
 	checkAppends(t, ck.Get("0"), counts)
